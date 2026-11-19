@@ -3,7 +3,7 @@ import csv,io
 from app.errors import DomainError
 from app.reader import decode
 from app.pipeline import calculate
-from app.store import save, latest, history, review, get_run
+from app.store import save, latest, history, review, get_run, plans_for_run
 from app.web import bp as web
 
 from app.modules.m1_receiving.handler import bp as bp1
@@ -13,6 +13,7 @@ from app.modules.m4_ranges.handler import bp as bp4
 from app.modules.m5_trace.handler import bp as bp5
 from app.modules.m6_verdict.handler import bp as bp6
 from app.modules.m7_revocation.handler import bp as bp7
+from app.modules.m8_interval.handler import bp as bp8
 app=Flask(__name__)
 app.config['MAX_CONTENT_LENGTH']=5*1024*1024
 app.json.ensure_ascii=False
@@ -32,6 +33,7 @@ app.register_blueprint(bp4)
 app.register_blueprint(bp5)
 app.register_blueprint(bp6)
 app.register_blueprint(bp7)
+app.register_blueprint(bp8)
 @app.before_request
 def validate_request_object():
     if request.method!='POST': return None
@@ -58,6 +60,10 @@ def run():
     return jsonify(save(calculate(text)))
 @app.route('/api/runs/<ident>')
 def run_detail(ident): return jsonify(get_run(ident))
+@app.route('/api/runs/<ident>/plans')
+def run_plans(ident):
+    get_run(ident)
+    return jsonify(plans_for_run(ident))
 @app.route('/api/history')
 def runs(): return jsonify(history())
 @app.route('/api/review',methods=['POST'])
@@ -72,6 +78,9 @@ def evidence():
     rows=[]
     for index,stage in result['stages'].items():
         rows.extend({'阶段':index,**r} for r in stage['rows'])
+        # M8 的校准点明细随证据一并导出，便于复核每个计划采用了哪些校准点。
+        for r in stage.get('points',[]):
+            rows.append({'阶段':index+'-校准点',**r})
     rows.extend({'阶段':'隔离',**r} for r in result['quarantine'])
     fields=list(dict.fromkeys(['阶段','run_id','规则版本']+[k for r in rows for k in r]))
     writer=csv.DictWriter(out,fieldnames=fields);writer.writeheader()
